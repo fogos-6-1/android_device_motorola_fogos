@@ -1,80 +1,37 @@
 
 #!/bin/bash
-
-echo "--- Initializing Fogos Source Sync ---"
-
-clone_if_missing() {
-    local repo_url=$1
-    local branch=$2
-    local target_dir=$3
-    local revision=""
-
+echo "--- Applying Fogos Commits ---"
+add_remote_and_pick() {
+    local target_dir=$1
+    local remote_name=$2
+    local repo_url=$3
     shift 3
-
-    if [[ "$1" == revision=* ]]; then
-        revision="${1#revision=}"
+    echo "Processing: $target_dir"
+    if [ ! -d "$target_dir/.git" ]; then
+        echo "ERROR: Repository not found: $target_dir"
+        return 1
     fi
-
-    if [ -d "$target_dir" ]; then
-        echo "Skipping: $target_dir already exists"
-        return 0
+    if git -C "$target_dir" remote get-url "$remote_name" >/dev/null 2>&1; then
+        git -C "$target_dir" remote set-url "$remote_name" "$repo_url" || return 1
+    else
+        git -C "$target_dir" remote add "$remote_name" "$repo_url" || return 1
     fi
-
-    echo "Cloning: $target_dir"
-
-    git clone --single-branch --branch "$branch" "$repo_url" "$target_dir" || return 1
-
-    if [ -n "$revision" ]; then
-        git -C "$target_dir" checkout "$revision" || return 1
-    fi
-
-    echo "Successfully cloned: $target_dir"
+    git -C "$target_dir" fetch "$remote_name" || return 1
+    for commit in "$@"; do
+        if git -C "$target_dir" merge-base --is-ancestor "$commit" HEAD 2>/dev/null; then
+            echo "Already applied: $commit"
+            continue
+        fi
+        if ! git -C "$target_dir" cat-file -e "$commit^{commit}" 2>/dev/null; then
+            echo "ERROR: Commit not found: $commit"
+            return 1
+        fi
+        echo "Cherry-picking: $commit"
+        git -C "$target_dir" cherry-pick "$commit"
+    done
+    echo "Completed: $target_dir"
 }
-
-# Device
-clone_if_missing "https://github.com/fogos-6-1/android_device_motorola_fogos.git" "lineage-24.0-6.1" "device/motorola/fogos"
-
-clone_if_missing "https://github.com/fogos-6-1/android_device_motorola_sm6375-common.git" "lineage-24.0-6.1" "device/motorola/sm6375-common"
-
-# Vendor
-clone_if_missing "https://github.com/fogos-6-1/proprietary_vendor_motorola_fogos.git" "lineage-24.0-6.1" "vendor/motorola/fogos"
-
-clone_if_missing "https://github.com/fogos-6-1/proprietary_vendor_motorola_sm6375-common.git" "lineage-24.0-6.1" "vendor/motorola/sm6375-common"
-
-# Qualcomm Health
-clone_if_missing "https://github.com/fogos-6-1/android_vendor_qcom_opensource_healthd-ext.git" "lineage-24.0-6.1" "vendor/qcom/opensource/healthd-ext"
-
-# Qualcomm Hardware
-clone_if_missing "https://github.com/fogos-6-1/android_hardware_qcom_bootctrl.git" "lineage-24.0-6.1" "hardware/qcom-caf/bootctrl"
-
-clone_if_missing "https://github.com/fogos-6-1/android_hardware_qcom_common.git" "lineage-24.0-6.1" "hardware/qcom-caf/common"
-
-clone_if_missing "https://github.com/fogos-6-1/android_hardware_qcom_audio.git" "lineage-24.0-6.1" "hardware/qcom-caf/fogos-legacy-audio"
-
-clone_if_missing "https://github.com/fogos-6-1/android_hardware_qcom_display.git" "lineage-24.0-6.1" "hardware/qcom-caf/sm6375-6.1/display"
-
-# Qualcomm Audio
-clone_if_missing "https://github.com/fogos-6-1/android_hardware_qcom_audio_ar.git" "lineage-24.0-6.1" "hardware/qcom-caf/sm6375-6.1/audio/primary-hal"
-
-clone_if_missing "https://github.com/fogos-6-1/android_vendor_qcom_opensource_arpal_lx.git" "lineage-24.0-6.1" "hardware/qcom-caf/sm6375-6.1/audio/pal"
-
-clone_if_missing "https://github.com/fogos-6-1/android_vendor_qcom_opensource_agm.git" "lineage-24.0-6.1" "hardware/qcom-caf/sm6375-6.1/audio/agm"
-
-clone_if_missing "https://github.com/fogos-6-1/android_vendor_qcom_opensource_audioreach_graphservices.git" "lineage-24.0-6.1" "hardware/qcom-caf/sm6375-6.1/audio/graphservices"
-
-# Qualcomm Data
-clone_if_missing "https://github.com/fogos-6-1/android_vendor_qcom_opensource_data_ipa_cfg_mgr.git" "lineage-24.0-6.1" "hardware/qcom-caf/sm6375-6.1/data-ipa-cfg-mgr"
-
-clone_if_missing "https://github.com/fogos-6-1/android_vendor_qcom_opensource_dataipa.git" "lineage-24.0-6.1" "hardware/qcom-caf/sm6375-6.1/dataipa"
-
-# Prebuilt Kernel
-clone_if_missing "https://github.com/fogos-6-1/android_device_motorola_fogos-kernel.git" "lineage-24.0-6.1" "device/motorola/fogos-kernel"
-
-# Motorola Hardware
-clone_if_missing "https://github.com/fogos-6-1/android_hardware_motorola.git" "lineage-24.0-6.1" "hardware/motorola" revision="50e65e5fd3ede70dd6417a9dbfe0ce5d798c626e"
-
-# Samsung NFC
-clone_if_missing "https://github.com/fogos-6-1/android_hardware_samsung_slsi_nfc.git" "lineage-24.0-6.1" "hardware/samsung_slsi/nfc" revision="88490b4408246e6c10ef1a6942844796f66dee5e"
-
-echo ""
-echo "--- Fogos Source Sync Complete ---"
+add_remote_and_pick vendor/lineage fogos61 https://github.com/fogos-6-1/vendor_evolution.git 67ff748c188989b75a87a8783cffac3bb3ce281e
+add_remote_and_pick frameworks/av fogos61 https://github.com/fogos-6-1/frameworks_av.git 90d60bbdecd567b8c8cd80d610d5b5aaec5b5ba0
+add_remote_and_pick hardware/qcom-caf/common fogos61 https://github.com/fogos-6-1/android_hardware_qcom-caf_common.git 6fb923d4d6349eb40c1689b599db44208c678b25 751dbe8e6af4d27ba84dce79c54a769966c1c322 d1ae9c46329664a44daa81bb55d924ce7c454480
+echo "--- All Fogos Commits Applied Successfully ---"
